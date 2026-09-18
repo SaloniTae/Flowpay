@@ -43,22 +43,73 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
+      - name: Verify and prepare debug APK
+        run: |
+          set -euo pipefail
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          ALIGNED="app/build/outputs/apk/debug/Flowpay-debug.apk"
+
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK" "$ALIGNED"
+
+          test -s "$ALIGNED"
+          unzip -t "$ALIGNED" >/dev/null
+
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --out "$ALIGNED" \
+            "$ALIGNED"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$ALIGNED"
+          unzip -t "$ALIGNED" >/dev/null
+
+          echo "Final APK:"
+          ls -lh "$ALIGNED"
+
       - name: Build unsigned release APK
         run: |
           ./gradlew assembleRelease -PallowUnsigned --no-daemon --stacktrace
 
-      - name: Upload debug APK
+      - name: Verify release APK
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          echo "Release APK:"
+          ls -lh "$APK"
+
+      - name: Upload verified debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Flowpay-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/Flowpay-debug.apk
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload release APK
+      - name: Upload verified unsigned release APK
         uses: actions/upload-artifact@v4
         with:
           name: Flowpay-release-unsigned-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 7
